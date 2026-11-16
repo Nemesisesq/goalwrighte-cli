@@ -1,0 +1,39 @@
+# A hidden job that starts a Run with the Goalwrighte CLI. Include this file at a release tag
+# and extend the job:
+#
+#   include:
+#     - remote: https://raw.githubusercontent.com/Nemesisesq/goalwrighte-cli/v1.2.3/gitlab.yml
+#
+#   goalwrighte:
+#     extends: .goalwrighte-run
+#     variables:
+#       GOALWRIGHTE_VERSION: v1.2.3
+#       GOALWRIGHTE_SITE: <Site id>
+#       GOALWRIGHTE_GOALS: <Goal id> <Goal id>
+#
+# The API token comes from a masked, protected CI/CD variable named GOALWRIGHTE_API_TOKEN.
+# Optional variables: GOALWRIGHTE_START_URL, GOALWRIGHTE_TIMEOUT, GOALWRIGHTE_WAIT,
+# GOALWRIGHTE_WAIT_VERIFICATION, GOALWRIGHTE_NEW_RUN ("true"), GOALWRIGHTE_BASE_URL.
+.goalwrighte-run:
+  # curlimages/curl is Alpine with curl; BusyBox supplies sh and sha256sum.
+  image:
+    name: curlimages/curl:8.11.1
+    entrypoint: [""]
+  variables:
+    GIT_STRATEGY: none
+  script:
+    # install.sh comes from the same tag as the binary it installs.
+    - curl -fsSL -o /tmp/goalwrighte-install.sh "https://raw.githubusercontent.com/Nemesisesq/goalwrighte-cli/$GOALWRIGHTE_VERSION/install.sh"
+    - GOALWRIGHTE_BIN_DIR=/tmp/goalwrighte sh /tmp/goalwrighte-install.sh
+    - |
+      set -f # Goal ids are split on spaces and newlines, never expanded as patterns.
+      set -- run --site "$GOALWRIGHTE_SITE" --commit "$CI_COMMIT_SHA" --ref "$CI_COMMIT_REF_NAME" --pipeline-url "$CI_PIPELINE_URL"
+      for goal in $GOALWRIGHTE_GOALS; do set -- "$@" --goal "$goal"; done
+      [ -z "${GOALWRIGHTE_START_URL:-}" ] || set -- "$@" --start-url "$GOALWRIGHTE_START_URL"
+      [ -z "${GOALWRIGHTE_TIMEOUT:-}" ] || set -- "$@" --timeout "$GOALWRIGHTE_TIMEOUT"
+      [ -z "${GOALWRIGHTE_WAIT:-}" ] || set -- "$@" --wait "$GOALWRIGHTE_WAIT"
+      [ -z "${GOALWRIGHTE_WAIT_VERIFICATION:-}" ] || set -- "$@" --wait-verification "$GOALWRIGHTE_WAIT_VERIFICATION"
+      [ "${GOALWRIGHTE_NEW_RUN:-}" != true ] || set -- "$@" --new-run
+      [ -z "${GOALWRIGHTE_BASE_URL:-}" ] || set -- "$@" --base-url "$GOALWRIGHTE_BASE_URL"
+      # exec, so the signal of a canceled job reaches the CLI, which cancels the Run.
+      exec /tmp/goalwrighte/goalwrighte "$@"

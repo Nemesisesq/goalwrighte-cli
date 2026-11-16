@@ -1,0 +1,35 @@
+# Copy this file into .rwx/ and fill in the release tag, the Site id and the Goal ids.
+on:
+  github:
+    push:
+      if: ${{ event.git.branch == 'main' }}
+      init:
+        commit-sha: ${{ event.git.sha }}
+        ref: ${{ event.git.ref }}
+
+# install.sh needs curl and sha256sum or shasum on this base.
+base:
+  image: ubuntu:26.04
+  config: rwx/base 1.2.1
+
+tasks:
+  - key: goalwrighte-run
+    # A cache hit would report an earlier exit code without starting a Run, so this task never
+    # caches.
+    cache: false
+    env:
+      # Keep the API token in a locked vault that only this repository's main branch may read.
+      GOALWRIGHTE_API_TOKEN: ${{ vaults.goalwrighte.secrets.GOALWRIGHTE_API_TOKEN }}
+      GOALWRIGHTE_VERSION: v1.2.3
+      GOALWRIGHTE_SITE: <Site id>
+      GOALWRIGHTE_GOALS: <Goal id> <Goal id>
+      COMMIT: ${{ init.commit-sha }}
+      REF: ${{ init.ref }}
+    run: |
+      curl -fsSL -o install.sh "https://raw.githubusercontent.com/Nemesisesq/goalwrighte-cli/$GOALWRIGHTE_VERSION/install.sh"
+      GOALWRIGHTE_BIN_DIR="$PWD/bin" sh install.sh
+      set -f # Goal ids are split on spaces, never expanded as patterns.
+      set -- run --site "$GOALWRIGHTE_SITE" --commit "$COMMIT" --ref "$REF"
+      for goal in $GOALWRIGHTE_GOALS; do set -- "$@" --goal "$goal"; done
+      # exec, so the signal of a canceled run reaches the CLI, which cancels the Run.
+      exec ./bin/goalwrighte "$@"

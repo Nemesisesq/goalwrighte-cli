@@ -1,0 +1,41 @@
+name: nightly
+
+# Starts a Run on Goalwrighte's own Test shop every night and expects exit 5: Completed
+# unverified, awaiting Verification. Needs the secret GOALWRIGHTE_API_TOKEN and the variables
+# GOALWRIGHTE_SITE, GOALWRIGHTE_GOAL and GOALWRIGHTE_VERSION; without them the job is skipped.
+on:
+  schedule:
+    - cron: '23 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    if: vars.GOALWRIGHTE_SITE != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      # The commit is the same every night, so new-run starts a Run each time.
+      - name: start a Run with the action
+        id: run
+        continue-on-error: true
+        uses: ./
+        with:
+          api-token: ${{ secrets.GOALWRIGHTE_API_TOKEN }}
+          site: ${{ vars.GOALWRIGHTE_SITE }}
+          goals: ${{ vars.GOALWRIGHTE_GOAL }}
+          version: ${{ vars.GOALWRIGHTE_VERSION }}
+          new-run: 'true'
+      - name: find the same Run again and expect exit 5
+        env:
+          GOALWRIGHTE_API_TOKEN: ${{ secrets.GOALWRIGHTE_API_TOKEN }}
+          SITE: ${{ vars.GOALWRIGHTE_SITE }}
+          GOAL: ${{ vars.GOALWRIGHTE_GOAL }}
+          BIN: ${{ runner.temp }}/goalwrighte/goalwrighte
+          COMMIT: ${{ github.sha }}
+        run: |
+          code=0; "$BIN" run --site "$SITE" --goal "$GOAL" --commit "$COMMIT" || code=$?
+          [ "$code" -eq 5 ] || { echo "exit $code, not 5"; exit 1; }

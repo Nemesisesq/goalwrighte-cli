@@ -1,0 +1,44 @@
+name: check
+
+# Proves the installer and the action on a GitHub runner, without an API token.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The Goalwrighte CLI release to install, a tag such as v1.2.3
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    env:
+      GOALWRIGHTE_VERSION: ${{ inputs.version || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: the action exits 2 without an API token
+        id: run
+        continue-on-error: true
+        uses: ./
+        with:
+          api-token: ''
+          site: none
+          goals: none
+          version: ${{ env.GOALWRIGHTE_VERSION }}
+      - name: check the exit code and the version
+        env:
+          BIN: ${{ runner.temp }}/goalwrighte/goalwrighte
+          OUTCOME: ${{ steps.run.outcome }}
+        run: |
+          [ "$OUTCOME" = failure ] || { echo "the action did not fail without an API token"; exit 1; }
+          [ "$("$BIN" version)" = "$GOALWRIGHTE_VERSION" ] || { echo "version is $("$BIN" version)"; exit 1; }
+          code=0; GOALWRIGHTE_API_TOKEN= "$BIN" run --site none --goal none || code=$?
+          [ "$code" -eq 2 ] || { echo "exit $code, not 2"; exit 1; }
