@@ -1,9 +1,10 @@
 name: check
 
 # Proves the installer and the action on a GitHub runner, without an API token.
+# A release is published only once its binaries are uploaded, so the installer finds them.
 on:
-  push:
-    tags: ['v*']
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       version:
@@ -21,7 +22,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     env:
-      GOALWRIGHTE_VERSION: ${{ inputs.version || github.ref_name }}
+      GOALWRIGHTE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
     steps:
       - uses: actions/checkout@v4
       - name: the action exits 2 without an API token
