@@ -1,7 +1,8 @@
 name: nightly
 
-# Starts a Run on Goalwrighte's own Test shop every night and expects exit 5: Completed
-# unverified, awaiting Verification. Needs the secret GOALWRIGHTE_API_TOKEN and the variables
+# Starts a Run on Goalwrighte's own Test shop every night with require-verification, so that no
+# Assessment gives exit 0, and expects exit 5: Completed unverified, awaiting Verification. The
+# release GOALWRIGHTE_VERSION names must know --require-verification. Needs the secret GOALWRIGHTE_API_TOKEN and the variables
 # GOALWRIGHTE_SITE, GOALWRIGHTE_GOAL and GOALWRIGHTE_VERSION; without them the job is skipped.
 on:
   schedule:
@@ -29,13 +30,20 @@ jobs:
           goals: ${{ vars.GOALWRIGHTE_GOAL }}
           version: ${{ vars.GOALWRIGHTE_VERSION }}
           new-run: 'true'
-      - name: find the same Run again and expect exit 5
+          require-verification: 'true'
+      - name: expect exit 5 from the action and the same Run when run again
         env:
           GOALWRIGHTE_API_TOKEN: ${{ secrets.GOALWRIGHTE_API_TOKEN }}
           SITE: ${{ vars.GOALWRIGHTE_SITE }}
           GOAL: ${{ vars.GOALWRIGHTE_GOAL }}
           BIN: ${{ runner.temp }}/goalwrighte/goalwrighte
           COMMIT: ${{ github.sha }}
+          ACTION_EXIT: ${{ steps.run.outputs.exit-code }}
+          ACTION_RUN: ${{ steps.run.outputs.run-url }}
         run: |
-          code=0; "$BIN" run --site "$SITE" --goal "$GOAL" --commit "$COMMIT" || code=$?
+          [ "$ACTION_EXIT" = 5 ] || { echo "the action exited ${ACTION_EXIT:-with no exit code}, not 5"; exit 1; }
+          # Only after the action's own exit 5: a Run this second call started could not stand
+          # in for the action's. It must find the action's Run, which it names in its outputs.
+          code=0; "$BIN" run --site "$SITE" --goal "$GOAL" --commit "$COMMIT" --require-verification || code=$?
           [ "$code" -eq 5 ] || { echo "exit $code, not 5"; exit 1; }
+          grep -qxF "run-url=$ACTION_RUN" "$GITHUB_OUTPUT" || { echo "running again did not find the action's Run $ACTION_RUN"; exit 1; }

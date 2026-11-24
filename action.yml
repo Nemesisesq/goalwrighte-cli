@@ -1,5 +1,5 @@
 name: Goalwrighte Run
-description: Starts a Run of a Site's Goals with the Goalwrighte CLI and exits 0 only when every Criterion is verified passed.
+description: Starts a Run of a Site's Goals with the Goalwrighte CLI and exits 0 only when every Criterion is passed, by a Member's Verification or else by the Assessment.
 inputs:
   api-token:
     description: An API token of the Workspace. Pass it from a repository secret.
@@ -19,18 +19,31 @@ inputs:
     description: Seconds the Run may take, up to the Plan's maximum.
   wait:
     description: How long to wait for the Results before canceling the Run, such as 10m. The CLI waits 20m by default.
+  wait-assessment:
+    description: How long to wait for the Assessment once the Results arrive, such as 5m. The CLI waits 2m by default.
   wait-verification:
-    description: How long to keep waiting for Verification, such as 30m. By default the job exits 5 as soon as the Results arrive.
+    description: How long to keep waiting for Verification, such as 30m. By default a job that awaits Verification exits 5 at once.
+  require-verification:
+    description: Set to true to exit 0 only when a Member verified every Criterion passed, whatever the Assessment.
+    default: "false"
   new-run:
     description: Set to true to start another Run on a commit that already has one.
     default: "false"
   base-url:
     description: The control plane's URL, when it is not the CLI's default.
+outputs:
+  exit-code:
+    description: The Goalwrighte CLI's exit code. Empty when the CLI could not be installed.
+    value: ${{ steps.run.outputs.exit-code }}
+  run-url:
+    description: The Run page of the Run the job started or found. Empty when there is none.
+    value: ${{ steps.run.outputs.run-url }}
 runs:
   using: composite
   steps:
     # Every input reaches the script through the environment, so none is read as shell.
-    - shell: bash
+    - id: run
+      shell: bash
       env:
         GOALWRIGHTE_API_TOKEN: ${{ inputs.api-token }}
         GOALWRIGHTE_VERSION: ${{ inputs.version }}
@@ -41,7 +54,9 @@ runs:
         START_URL: ${{ inputs.start-url }}
         TIMEOUT: ${{ inputs.timeout }}
         WAIT: ${{ inputs.wait }}
+        WAIT_ASSESSMENT: ${{ inputs.wait-assessment }}
         WAIT_VERIFICATION: ${{ inputs.wait-verification }}
+        REQUIRE_VERIFICATION: ${{ inputs.require-verification }}
         NEW_RUN: ${{ inputs.new-run }}
         BASE_URL: ${{ inputs.base-url }}
         COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -55,7 +70,9 @@ runs:
         [ -z "$START_URL" ] || set -- "$@" --start-url "$START_URL"
         [ -z "$TIMEOUT" ] || set -- "$@" --timeout "$TIMEOUT"
         [ -z "$WAIT" ] || set -- "$@" --wait "$WAIT"
+        [ -z "$WAIT_ASSESSMENT" ] || set -- "$@" --wait-assessment "$WAIT_ASSESSMENT"
         [ -z "$WAIT_VERIFICATION" ] || set -- "$@" --wait-verification "$WAIT_VERIFICATION"
+        [ "$REQUIRE_VERIFICATION" != true ] || set -- "$@" --require-verification
         [ "$NEW_RUN" != true ] || set -- "$@" --new-run
         [ -z "$BASE_URL" ] || set -- "$@" --base-url "$BASE_URL"
         # exec, so the signal of a canceled workflow reaches the CLI, which cancels the Run.

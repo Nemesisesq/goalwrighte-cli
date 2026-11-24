@@ -1,13 +1,29 @@
 # Goalwrighte CLI
 
-`goalwrighte` is the command a pipeline runs to start a Run on Goalwrighte Cloud and learn its
-Verification. It starts a Run of a Site's stored Goals with an API token, waits for the
-Results, prints each Goal's status and the Run page's address, and exits.
+`goalwrighte` is the command a pipeline runs to start a Run on Goalwrighte Cloud and learn how
+its Goals stand. It starts a Run of a Site's stored Goals with an API token, waits for the
+Results and then for the Assessment, prints each Goal's status and the Run page's address, and
+exits.
 
-It exits 0 only when every Criterion of every Goal in the Run is verified passed. A Result is
-never a pass by itself: a Run whose Results are all Completed unverified exits 5, and the job
-stays red until a Member records Verification on the Run page. No flag makes it exit 0 without
-Verification.
+A Result is never a pass by itself. The Assessor, Goalwrighte's own agent, judges each
+Criterion of every Result from the Run's evidence as passed, failed or unclear: that is the
+Assessment. A Member's judgment of a Criterion counts over the Assessment of it, in either
+direction. The job exits by how each Criterion then stands:
+
+| State | Exit |
+| --- | --- |
+| A Member verified every Criterion passed | 0 |
+| The Assessor judged every Criterion passed, and no Member verified | 0, and the output says "Assessed passed. No Member has verified." |
+| Every Criterion is passed, some by a Member and the rest by the Assessment | 0, and the output says "Every Criterion passed, in part by the Assessment. No Member has verified every Criterion." |
+| Any Criterion failed, by a Member or by the Assessor with no Member judgment | 1 |
+| Any Criterion unclear or not assessed, none failed | 5 |
+
+The output says verified only of a Member's Verification. An Assessment that is pending,
+unavailable or in a state the CLI does not know never gives exit 0.
+
+To let only a Member's Verification give exit 0, an Owner ticks **A Member must verify** in
+the CI gate card of the Site's Settings tab, which holds for every pipeline, or one pipeline
+passes `--require-verification`. Every Run then exits 5 until a Member verifies it.
 
 This repository holds the release binaries (linux and darwin, amd64 and arm64) with their
 checksums, and a thin wrapper for GitHub, GitLab and RWX. Each wrapper only installs the
@@ -17,12 +33,17 @@ binary and runs it.
 
 | Exit | Meaning |
 | --- | --- |
-| 0 | Every Criterion verified passed |
-| 1 | A Result other than Completed unverified, or a Criterion verified failed |
+| 0 | Every Criterion passed: verified by a Member, or assessed passed with no Member judgment |
+| 1 | A Result other than Completed unverified, or a Criterion judged failed, by a Member or by the Assessor with no Member judgment |
 | 2 | Refused or misconfigured, including an empty API token |
-| 3 | Platform failure or wait timeout |
+| 3 | Platform failure, the wait for the Results ran out, or an answer the CLI does not know |
 | 4 | `quota_exhausted`: the Workspace's Plan has no Runs left this month |
-| 5 | Completed unverified, awaiting Verification |
+| 5 | Completed unverified, awaiting Verification: a Criterion is unclear or not assessed and no Member judged it, or a Member must verify |
+
+The wait for the Assessment is bounded: `--wait-assessment` (2 minutes by default) once the
+Results arrive. When it runs out the job exits 5. With `--require-verification` the CLI does
+not wait for it. On a Site where a Member must verify it still waits, though the Assessment
+cannot change the exit code there; pass `--require-verification` as well to skip the wait.
 
 ## Before you start
 
@@ -38,14 +59,19 @@ this repository's releases.
 
 ## The red job and the re-run
 
-The job is red until a Member verifies. That suits a gate before a release or a nightly
-pipeline. It is a poor required check on every push.
+A job that exits 5 is red until a Member judges what the Assessor could not: a Criterion it
+left unclear, a Run it could not assess (a Site with Screenshots off gets no Assessment), or
+every Run where a Member must verify.
 
 1. The job starts a Run, the Results arrive, and the job exits 5. Its output has the Run
    page's address.
-2. A Member opens the Run page and records Verification for each Criterion.
+2. A Member opens the Run page and records Verification for each Criterion, or agrees with
+   the Assessment in one step with Verify as assessed.
 3. The Member re-runs the job. It finds the same Run, starts nothing, uses no quota, and
-   exits 0 when every Criterion is verified passed or 1 when one is verified failed.
+   exits 0 when every Criterion is passed or 1 when one is failed.
+
+A Member can also overrule an Assessment after a job went green or red: re-running the job
+then exits by the Member's judgment.
 
 The second invocation finds the Run because the CLI sends an `Idempotency-Key` built from the
 Site, the commit, the Goals, `--start-url` and `--timeout`. A Run that ended `failed` or `canceled` does not hold its key,
@@ -110,8 +136,9 @@ jobs:
           new-run: ${{ github.run_attempt == 1 }}
 ```
 
-The action's other inputs are `start-url`, `timeout`, `wait`, `wait-verification` and
-`base-url`. The CLI writes each Goal's status and the Run page link to the job summary.
+The action's other inputs are `start-url`, `timeout`, `wait`, `wait-assessment`,
+`wait-verification`, `require-verification` (`true`) and `base-url`. The CLI writes each Goal's status and the Run page link to the job summary. The
+action's outputs are `exit-code`, the CLI's exit code, and `run-url`, the Run page.
 
 A pull request from a fork gets no repository secrets, so the API token is empty and the job
 exits 2. Start Runs from pushes to your own branches and from schedules.
@@ -128,7 +155,7 @@ To tolerate exit 5, run the CLI from a shell step instead of the action:
             --commit "$GITHUB_SHA" --ref "$GITHUB_REF" || [ $? -eq 5 ]
 ```
 
-A job that tolerates exit 5 is green before any Member has verified. It says the Results
+A job that tolerates exit 5 is green with a Criterion nobody judged passed. It says the Results
 arrived, not that a Goal passed.
 
 ## GitLab
@@ -162,7 +189,9 @@ goalwrighte:
 ```
 
 Optional variables: `GOALWRIGHTE_START_URL`, `GOALWRIGHTE_TIMEOUT`, `GOALWRIGHTE_WAIT`,
-`GOALWRIGHTE_WAIT_VERIFICATION`, `GOALWRIGHTE_NEW_RUN` (`"true"`) and `GOALWRIGHTE_BASE_URL`.
+`GOALWRIGHTE_WAIT_ASSESSMENT`, `GOALWRIGHTE_WAIT_VERIFICATION`,
+`GOALWRIGHTE_REQUIRE_VERIFICATION` (`"true"`), `GOALWRIGHTE_NEW_RUN` (`"true"`) and
+`GOALWRIGHTE_BASE_URL`.
 
 A scheduled pipeline on a commit that already has a Run finds that Run. Setting
 `GOALWRIGHTE_NEW_RUN: "true"` on the schedule starts a new one each night, and a retried job
@@ -236,7 +265,8 @@ with `|| [ $? -eq 5 ]`.
 ```
 goalwrighte run --site <id> --goal <id> [--goal <id> ...]
     [--start-url <URL>] [--timeout <seconds>] [--wait <duration>]
-    [--wait-verification <duration>] [--new-run] [--base-url <URL>]
+    [--wait-assessment <duration>] [--wait-verification <duration>]
+    [--require-verification] [--new-run] [--base-url <URL>]
     [--commit <sha>] [--ref <ref>] [--pipeline-url <URL>]
 goalwrighte version
 ```

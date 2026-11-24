@@ -13,7 +13,8 @@
 #
 # The API token comes from a masked, protected CI/CD variable named GOALWRIGHTE_API_TOKEN.
 # Optional variables: GOALWRIGHTE_START_URL, GOALWRIGHTE_TIMEOUT, GOALWRIGHTE_WAIT,
-# GOALWRIGHTE_WAIT_VERIFICATION, GOALWRIGHTE_NEW_RUN ("true"), GOALWRIGHTE_BASE_URL.
+# GOALWRIGHTE_WAIT_ASSESSMENT, GOALWRIGHTE_WAIT_VERIFICATION,
+# GOALWRIGHTE_REQUIRE_VERIFICATION ("true"), GOALWRIGHTE_NEW_RUN ("true"), GOALWRIGHTE_BASE_URL.
 .goalwrighte-run:
   # curlimages/curl is Alpine with curl; BusyBox supplies sh and sha256sum.
   image:
@@ -32,7 +33,9 @@
       [ -z "${GOALWRIGHTE_START_URL:-}" ] || set -- "$@" --start-url "$GOALWRIGHTE_START_URL"
       [ -z "${GOALWRIGHTE_TIMEOUT:-}" ] || set -- "$@" --timeout "$GOALWRIGHTE_TIMEOUT"
       [ -z "${GOALWRIGHTE_WAIT:-}" ] || set -- "$@" --wait "$GOALWRIGHTE_WAIT"
+      [ -z "${GOALWRIGHTE_WAIT_ASSESSMENT:-}" ] || set -- "$@" --wait-assessment "$GOALWRIGHTE_WAIT_ASSESSMENT"
       [ -z "${GOALWRIGHTE_WAIT_VERIFICATION:-}" ] || set -- "$@" --wait-verification "$GOALWRIGHTE_WAIT_VERIFICATION"
+      [ "${GOALWRIGHTE_REQUIRE_VERIFICATION:-}" != true ] || set -- "$@" --require-verification
       [ "${GOALWRIGHTE_NEW_RUN:-}" != true ] || set -- "$@" --new-run
       [ -z "${GOALWRIGHTE_BASE_URL:-}" ] || set -- "$@" --base-url "$GOALWRIGHTE_BASE_URL"
       # exec, so the signal of a canceled job reaches the CLI, which cancels the Run.
